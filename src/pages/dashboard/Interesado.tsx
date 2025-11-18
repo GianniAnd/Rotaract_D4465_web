@@ -1,30 +1,11 @@
-import {
-  Alert,
-  Box,
-  Card,
-  CardActions,
-  CardContent,
-  Chip,
-  CircularProgress,
-  Grid,
-  IconButton,
-  MenuItem,
-  Pagination,
-  Paper,
-  Select,
-  SelectChangeEvent,
-  Stack,
-  Tooltip,
-  Typography,
-} from "@mui/material";
-import BookmarkBorderIcon from "@mui/icons-material/BookmarkBorder";
-import PlaceIcon from "@mui/icons-material/Place";
-import EventAvailableIcon from "@mui/icons-material/EventAvailable";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Alert, Button, Card, Pagination, Select, Spinner } from "flowbite-react";
+import Swal from "sweetalert2";
 import { useAuth } from "../../hooks/useAuth";
 import { WelcomePanel } from "./components/WelcomePanel";
 import {
   fetchPublicConvocatorias,
+  inscribirseConvocatoria,
   type Convocatoria,
 } from "../../api/convocatorias";
 
@@ -38,6 +19,7 @@ export const Interesado = () => {
   const [totalItems, setTotalItems] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [applyingId, setApplyingId] = useState<number | null>(null);
 
   const loadConvocatorias = useCallback(async () => {
     setLoading(true);
@@ -50,9 +32,8 @@ export const Interesado = () => {
       setConvocatorias(response.items);
       setTotalPages(response.totalPages || 1);
       setTotalItems(response.total);
-      const responsePage = response.page + 1;
-      if (responsePage > 0 && responsePage !== page) {
-        setPage(responsePage);
+      if (response.page + 1 !== page) {
+        setPage(response.page + 1);
       }
     } catch (err) {
       console.error("Error obteniendo convocatorias públicas", err);
@@ -69,197 +50,150 @@ export const Interesado = () => {
     loadConvocatorias();
   }, [loadConvocatorias]);
 
-  const handlePageChange = (_: unknown, value: number) => {
-    setPage(value);
-  };
-
-  const handlePageSizeChange = (event: SelectChangeEvent<string>) => {
-    const value = Number(event.target.value);
-    setPageSize(value);
-    setPage(1);
-  };
-
   const paginationLabel = useMemo(() => {
     const start = totalItems === 0 ? 0 : (page - 1) * pageSize + 1;
     const end = Math.min(page * pageSize, totalItems);
     return `Mostrando ${start}-${end} de ${totalItems}`;
   }, [page, pageSize, totalItems]);
 
-  const formatDate = (isoDate: string) =>
-    new Date(isoDate).toLocaleDateString(undefined, {
+  const formatDate = (iso: string) =>
+    new Date(iso).toLocaleDateString(undefined, {
       day: "2-digit",
       month: "short",
       year: "numeric",
     });
 
   return (
-    <Stack spacing={3}>
+    <div className="space-y-6">
       <WelcomePanel
         greeting={`Bienvenido, ${name}`}
         roleLabel="Interesado"
-        description="Muy pronto verás aquí las convocatorias activas disponibles para participar en tu distrito."
-        hint="Conecta tus intereses y postula directamente desde este panel en cuanto esté listo."
+        description="Explora convocatorias de clubes Rotaract del distrito y postula desde un solo lugar."
+        hint="Pronto habilitaremos acciones para guardar y postular directamente."
       />
-      <Paper
-        variant="outlined"
-        sx={{
-          p: 3,
-          borderRadius: 3,
-        }}
-      >
-        <Stack
-          direction={{ xs: "column", sm: "row" }}
-          justifyContent="space-between"
-          alignItems={{ xs: "flex-start", sm: "center" }}
-          spacing={2}
-          sx={{ mb: 3 }}
-        >
+      <section className="rounded-3xl bg-white p-6 shadow-card ring-1 ring-border-subtle">
+        <header className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <Typography variant="h6" fontWeight={600}>
+            <h2 className="text-xl font-semibold text-text-primary">
               Convocatorias disponibles
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              Explora iniciativas compartidas por clubes Rotaract y postula en
-              cuestión de minutos.
-            </Typography>
+            </h2>
+            <p className="text-sm text-text-secondary">
+              Descubre oportunidades activas en el distrito.
+            </p>
           </div>
-          <Stack direction="row" spacing={1} alignItems="center">
-            <Typography variant="body2" color="text.secondary">
-              Por página
-            </Typography>
+          <div className="flex items-center gap-3 text-sm text-text-secondary">
+            <span>Por página</span>
             <Select
-              size="small"
               value={String(pageSize)}
-              onChange={handlePageSizeChange}
+              onChange={(event) => {
+                setPageSize(Number(event.target.value));
+                setPage(1);
+              }}
+              className="w-28"
             >
               {[6, 9, 12].map((option) => (
-                <MenuItem key={option} value={option}>
+                <option key={option} value={option}>
                   {option}
-                </MenuItem>
+                </option>
               ))}
             </Select>
-          </Stack>
-        </Stack>
+          </div>
+        </header>
 
         {error && (
-          <Alert severity="error" sx={{ mb: 2 }}>
+          <Alert color="failure" className="mb-4">
             {error}
           </Alert>
         )}
 
         {loading ? (
-          <Stack
-            alignItems="center"
-            justifyContent="center"
-            sx={{ minHeight: 200, py: 6 }}
-            spacing={2}
-          >
-            <CircularProgress />
-            <Typography variant="body2" color="text.secondary">
-              Cargando convocatorias...
-            </Typography>
-          </Stack>
+          <div className="flex flex-col items-center gap-2 py-10">
+            <Spinner size="xl" color="info" />
+            <p className="text-sm text-text-secondary">Cargando convocatorias...</p>
+          </div>
         ) : convocatorias.length === 0 ? (
-          <Stack
-            alignItems="center"
-            justifyContent="center"
-            sx={{ minHeight: 200, py: 6 }}
-            spacing={1}
-          >
-            <Typography variant="subtitle1" fontWeight={600}>
-              No encontramos convocatorias activas.
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              Vuelve más tarde para descubrir nuevas oportunidades.
-            </Typography>
-          </Stack>
+          <div className="rounded-2xl border border-dashed border-border-subtle p-10 text-center">
+            <h3 className="text-lg font-semibold text-text-primary">
+              No encontramos convocatorias activas
+            </h3>
+            <p className="text-sm text-text-secondary">
+              Vuelve más tarde para descubrir nuevas oportunidades en tu distrito.
+            </p>
+          </div>
         ) : (
           <>
-            <Grid container spacing={3}>
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {convocatorias.map((convocatoria) => (
-                <Grid item xs={12} md={6} lg={4} key={convocatoria.id}>
-                  <Card
-                    variant="outlined"
-                    sx={{
-                      height: "100%",
-                      display: "flex",
-                      flexDirection: "column",
-                      borderRadius: 3,
-                    }}
-                  >
-                    <CardContent sx={{ flexGrow: 1 }}>
-                      <Stack
-                        direction="row"
-                        justifyContent="space-between"
-                        alignItems="flex-start"
-                        spacing={1}
-                        sx={{ mb: 1 }}
-                      >
-                        <Chip
-                          size="small"
-                          label={convocatoria.estado}
-                          color={
-                            convocatoria.estado?.toLowerCase() === "activa"
-                              ? "success"
-                              : "default"
+                <Card
+                  key={convocatoria.id}
+                  className="flex h-full flex-col border border-border-subtle shadow-card"
+                >
+                  <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-secondary">
+                    <span>{convocatoria.estado}</span>
+                    <span className="text-text-secondary">
+                      Cierra {formatDate(convocatoria.fechaCierre)}
+                    </span>
+                  </div>
+                  <h3 className="text-lg font-semibold text-text-primary">
+                    {convocatoria.titulo}
+                  </h3>
+                  <p className="text-sm text-text-secondary">{convocatoria.descripcion}</p>
+                  <div className="mt-3 rounded-2xl bg-bg-soft px-3 py-2 text-xs font-semibold uppercase text-text-secondary">
+                    {convocatoria.clubNombre}
+                  </div>
+                  <div className="mt-auto flex flex-wrap items-center justify-between gap-2 pt-4 text-sm text-text-secondary">
+                    <span>Cupo: {convocatoria.cupoMaximo}</span>
+                    <div className="flex gap-2">
+                      <Button color="light" size="xs">
+                        Guardar
+                      </Button>
+                      <Button
+                        color="light"
+                        size="xs"
+                        className="border border-primary bg-primary text-white hover:bg-primary-dark disabled:cursor-not-allowed disabled:border-border-subtle disabled:bg-border-subtle disabled:text-text-secondary"
+                        disabled={applyingId === convocatoria.id}
+                        onClick={async () => {
+                          setApplyingId(convocatoria.id);
+                          try {
+                            await inscribirseConvocatoria(convocatoria.id);
+                            await Swal.fire({
+                              title: "Postulación enviada",
+                              text: "Tu interés ha sido registrado. Te contactaremos pronto.",
+                              icon: "success",
+                              confirmButtonColor: "#1ea896",
+                            });
+                          } catch (err) {
+                            console.error("No se pudo inscribir a la convocatoria", err);
+                            await Swal.fire({
+                              title: "Error",
+                              text: "No pudimos registrar tu postulación. Intenta nuevamente.",
+                              icon: "error",
+                              confirmButtonColor: "#1ea896",
+                            });
+                          } finally {
+                            setApplyingId(null);
                           }
-                        />
-                        <Tooltip title="Guardar para revisar más tarde">
-                          <IconButton size="small">
-                            <BookmarkBorderIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      </Stack>
-                      <Typography variant="h6" gutterBottom>
-                        {convocatoria.titulo}
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                        {convocatoria.descripcion}
-                      </Typography>
-                      <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
-                        <PlaceIcon fontSize="small" color="primary" />
-                        <Typography variant="body2" color="text.secondary">
-                          {convocatoria.clubNombre}
-                        </Typography>
-                      </Stack>
-                      <Stack direction="row" spacing={1} alignItems="center">
-                        <EventAvailableIcon fontSize="small" color="primary" />
-                        <Typography variant="body2" color="text.secondary">
-                          Cierra {formatDate(convocatoria.fechaCierre)}
-                        </Typography>
-                      </Stack>
-                    </CardContent>
-                    <CardActions sx={{ px: 2, pb: 2 }}>
-                      <Box flex={1} />
-                      <Typography variant="caption" color="text.secondary">
-                        Cupo máximo: {convocatoria.cupoMaximo}
-                      </Typography>
-                    </CardActions>
-                  </Card>
-                </Grid>
+                        }}
+                      >
+                        {applyingId === convocatoria.id ? "Postulando..." : "Postular"}
+                      </Button>
+                    </div>
+                  </div>
+                </Card>
               ))}
-            </Grid>
-            <Stack
-              direction={{ xs: "column", md: "row" }}
-              spacing={2}
-              alignItems={{ xs: "flex-start", md: "center" }}
-              justifyContent="space-between"
-              sx={{ mt: 4 }}
-            >
-              <Typography variant="body2" color="text.secondary">
-                {paginationLabel}
-              </Typography>
+            </div>
+            <div className="mt-6 flex flex-col gap-3 text-sm text-text-secondary sm:flex-row sm:items-center sm:justify-between">
+              <p>{paginationLabel}</p>
               <Pagination
-                color="primary"
-                shape="rounded"
-                count={totalPages}
-                page={page}
-                onChange={handlePageChange}
+                currentPage={page}
+                totalPages={totalPages}
+                onPageChange={(value) => setPage(value)}
+                showIcons
               />
-            </Stack>
+            </div>
           </>
         )}
-      </Paper>
-    </Stack>
+      </section>
+    </div>
   );
 };

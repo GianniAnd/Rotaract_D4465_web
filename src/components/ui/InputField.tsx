@@ -1,58 +1,36 @@
-import { forwardRef } from "react";
-import { TextField, type TextFieldProps } from "@mui/material";
+import { forwardRef, InputHTMLAttributes } from "react";
+import { Label, TextInput } from "flowbite-react";
 
-interface InputFieldProps
-  extends Omit<TextFieldProps, "error" | "helperText" | "variant" | "fullWidth"> {
+interface InputFieldProps extends InputHTMLAttributes<HTMLInputElement> {
+  label: string;
   error?: string;
   helperText?: string;
 }
 
 export const InputField = forwardRef<HTMLInputElement, InputFieldProps>(
-  ({ error, helperText, InputLabelProps, type, sx, ...props }, ref) => (
-    <TextField
-      {...props}
-      type={type}
-      inputRef={ref}
-      variant="outlined"
-      size="small"
-      fullWidth
-      error={Boolean(error)}
-      helperText={error ?? helperText}
-      InputLabelProps={{
-        ...InputLabelProps,
-        shrink: type === "date" ? true : InputLabelProps?.shrink,
-        sx: {
-          fontWeight: 500,
-          color: (theme) => theme.palette.text.secondary,
-          ...InputLabelProps?.sx,
-        },
-      }}
-      sx={{
-        "& .MuiOutlinedInput-root": {
-          borderRadius: 20,
-          backgroundColor: (theme) =>
-            theme.palette.mode === "light"
-              ? theme.palette.background.paper
-              : theme.palette.background.default,
-          transition: "border-color 0.2s, box-shadow 0.2s",
-          "& fieldset": {
-            borderColor: (theme) => theme.palette.divider,
+  ({ label, error, helperText, className, ...props }, ref) => (
+    <div className="flex flex-col gap-2">
+      <Label value={label} className="text-sm font-semibold text-text-primary" />
+      <TextInput
+        {...props}
+        ref={ref}
+        color={error ? "failure" : "gray"}
+        helperText={error ?? helperText}
+        className={className}
+        theme={{
+          field: {
+            input: {
+              colors: {
+                gray:
+                  "border border-border-subtle bg-white text-text-primary focus:border-primary focus:ring-primary",
+                failure:
+                  "border border-danger bg-white text-text-primary focus:border-danger focus:ring-danger",
+              },
+            },
           },
-          "&:hover fieldset": {
-            borderColor: (theme) => theme.palette.primary.main,
-          },
-          "&.Mui-focused fieldset": {
-            borderColor: (theme) => theme.palette.primary.main,
-            borderWidth: 1.5,
-          },
-        },
-        "& .MuiInputBase-input": {
-          padding: type === "date" ? "14px 16px" : "16px 18px",
-          fontSize: "0.95rem",
-        },
-        ...sx,
-      }}
-    />
+        }}
+      />
+    </div>
   ),
 );
 InputField.displayName = "InputField";

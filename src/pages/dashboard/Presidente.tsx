@@ -1,55 +1,42 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
+  Badge,
   Button,
-  Chip,
-  CircularProgress,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  Grid,
-  IconButton,
-  MenuItem,
+  Modal,
   Pagination,
-  Paper,
   Select,
-  SelectChangeEvent,
-  Stack,
   Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Tooltip,
-  Typography,
-} from "@mui/material";
-import RefreshIcon from "@mui/icons-material/Refresh";
-import AddIcon from "@mui/icons-material/Add";
+  Textarea,
+  TextInput,
+} from "flowbite-react";
 import { useForm } from "react-hook-form";
+import Swal from "sweetalert2";
 import { useAuth } from "../../hooks/useAuth";
 import { WelcomePanel } from "./components/WelcomePanel";
 import {
   fetchClubConvocatorias,
+  fetchConvocatoriaInscripciones,
   createConvocatoria,
+  updateConvocatoria,
+  aceptarInscripcion,
+  rechazarInscripcion,
   type Convocatoria,
   type CreateConvocatoriaPayload,
+  type ConvocatoriaInscripcion,
 } from "../../api/convocatorias";
-import { InputField } from "../../components/ui/InputField";
 
 const createDefaultConvocatoriaValues = (): CreateConvocatoriaPayload => {
-  const today = new Date();
-  const iso = today.toISOString().substring(0, 10);
+  const today = new Date().toISOString().substring(0, 10);
   return {
     titulo: "",
     descripcion: "",
     requisitos: "",
-    cupoMaximo: 10,
-    fechaPublicacion: iso,
-    fechaInicioPostulacion: iso,
-    fechaFinPostulacion: iso,
-    fechaCierre: iso,
+    cupoMaximo: 20,
+    fechaPublicacion: today,
+    fechaInicioPostulacion: today,
+    fechaFinPostulacion: today,
+    fechaCierre: today,
   };
 };
 
@@ -64,11 +51,23 @@ export const Presidente = () => {
   const [totalItems, setTotalItems] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [modalMode, setModalMode] = useState<"create" | "edit">("create");
+  const [editingConvocatoria, setEditingConvocatoria] = useState<Convocatoria | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [inscriptionsOpen, setInscriptionsOpen] = useState(false);
+  const [selectedConvocatoria, setSelectedConvocatoria] = useState<Convocatoria | null>(null);
+  const [inscripciones, setInscripciones] = useState<ConvocatoriaInscripcion[]>([]);
+  const [inscripcionesPage, setInscripcionesPage] = useState(1);
+  const [inscripcionesPageSize, setInscripcionesPageSize] = useState(5);
+  const [inscripcionesTotalPages, setInscripcionesTotalPages] = useState(1);
+  const [inscripcionesTotal, setInscripcionesTotal] = useState(0);
+  const [inscripcionesLoading, setInscripcionesLoading] = useState(false);
+  const [inscripcionesError, setInscripcionesError] = useState<string | null>(null);
+  const [inscripcionActionId, setInscripcionActionId] = useState<number | null>(null);
 
   const {
-    register: registerField,
+    register,
     handleSubmit,
     reset,
     formState: { errors, isSubmitting },
@@ -87,9 +86,8 @@ export const Presidente = () => {
       setConvocatorias(response.items);
       setTotalPages(response.totalPages || 1);
       setTotalItems(response.total);
-      const responsePage = response.page + 1;
-      if (responsePage !== page && responsePage > 0) {
-        setPage(responsePage);
+      if (response.page + 1 !== page) {
+        setPage(response.page + 1);
       }
     } catch (err) {
       console.error("No se pudieron obtener las convocatorias", err);
@@ -106,23 +104,41 @@ export const Presidente = () => {
     loadConvocatorias();
   }, [loadConvocatorias]);
 
-  const handlePageChange = (_: unknown, value: number) => {
-    setPage(value);
-  };
+  const paginationLabel = useMemo(() => {
+    const start = totalItems === 0 ? 0 : (page - 1) * pageSize + 1;
+    const end = Math.min(page * pageSize, totalItems);
+    return `Mostrando ${start}-${end} de ${totalItems}`;
+  }, [page, pageSize, totalItems]);
 
-  const handlePageSizeChange = (event: SelectChangeEvent<string>) => {
-    const value = Number(event.target.value);
-    setPageSize(value);
-    setPage(1);
-  };
-
-  const handleOpenDialog = () => {
-    setDialogOpen(true);
+  const openCreateModal = () => {
     setFormError(null);
+    setModalMode("create");
+    setEditingConvocatoria(null);
+    reset(createDefaultConvocatoriaValues());
+    setIsModalOpen(true);
   };
 
-  const handleCloseDialog = () => {
-    setDialogOpen(false);
+  const openEditModal = (convocatoria: Convocatoria) => {
+    setFormError(null);
+    setModalMode("edit");
+    setEditingConvocatoria(convocatoria);
+    reset({
+      titulo: convocatoria.titulo,
+      descripcion: convocatoria.descripcion,
+      requisitos: convocatoria.requisitos,
+      cupoMaximo: convocatoria.cupoMaximo,
+      fechaPublicacion: convocatoria.fechaPublicacion?.substring(0, 10) ?? "",
+      fechaInicioPostulacion: convocatoria.fechaInicioPostulacion.substring(0, 10),
+      fechaFinPostulacion: convocatoria.fechaFinPostulacion.substring(0, 10),
+      fechaCierre: convocatoria.fechaCierre.substring(0, 10),
+    });
+    setIsModalOpen(true);
+  };
+
+  const closeModal = () => {
+    setIsModalOpen(false);
+    setModalMode("create");
+    setEditingConvocatoria(null);
     reset(createDefaultConvocatoriaValues());
     setFormError(null);
   };
@@ -130,319 +146,506 @@ export const Presidente = () => {
   const onSubmit = async (values: CreateConvocatoriaPayload) => {
     try {
       setFormError(null);
-      await createConvocatoria({
-        ...values,
-        cupoMaximo: Number(values.cupoMaximo),
+      if (modalMode === "create") {
+        await createConvocatoria({
+          ...values,
+          cupoMaximo: Number(values.cupoMaximo),
+        });
+        closeModal();
+        setPage(1);
+        loadConvocatorias();
+        return;
+      }
+
+      if (!editingConvocatoria) return;
+      const confirmation = await Swal.fire({
+        title: "Actualizar convocatoria",
+        text: "¿Deseas guardar los cambios de esta convocatoria?",
+        icon: "question",
+        showCancelButton: true,
+        confirmButtonText: "Sí, guardar",
+        cancelButtonText: "Cancelar",
+        confirmButtonColor: "#1ea896",
       });
-      handleCloseDialog();
-      setPage(1);
+      if (!confirmation.isConfirmed) return;
+
+      await updateConvocatoria(editingConvocatoria.id, {
+        titulo: values.titulo,
+        descripcion: values.descripcion,
+        requisitos: values.requisitos,
+        cupoMaximo: Number(values.cupoMaximo),
+        fechaInicioPostulacion: values.fechaInicioPostulacion,
+        fechaFinPostulacion: values.fechaFinPostulacion,
+        fechaCierre: values.fechaCierre,
+      });
+      closeModal();
+      await Swal.fire({
+        title: "Convocatoria actualizada",
+        text: "Los cambios se guardaron correctamente.",
+        icon: "success",
+        confirmButtonColor: "#1ea896",
+      });
       loadConvocatorias();
     } catch (err) {
-      console.error("Error creando convocatoria", err);
-      setFormError("No pudimos crear la convocatoria. Intenta nuevamente.");
+      console.error("Error guardando convocatoria", err);
+      setFormError("No pudimos guardar la convocatoria. Intenta nuevamente.");
+      await Swal.fire({
+        title: "Error",
+        text: "No pudimos guardar la convocatoria. Intenta nuevamente.",
+        icon: "error",
+        confirmButtonColor: "#1ea896",
+      });
     }
   };
 
-  const paginationLabel = useMemo(() => {
-    const start = totalItems === 0 ? 0 : (page - 1) * pageSize + 1;
-    const end = Math.min(page * pageSize, totalItems);
-    return `Mostrando ${start}-${end} de ${totalItems}`;
-  }, [page, pageSize, totalItems]);
-
-  const formatDate = (isoDate: string) =>
-    new Date(isoDate).toLocaleDateString(undefined, {
+  const formatDate = (iso: string) =>
+    new Date(iso).toLocaleDateString(undefined, {
       day: "2-digit",
       month: "short",
       year: "numeric",
     });
 
+  const openInscripcionesModal = (convocatoria: Convocatoria) => {
+    setSelectedConvocatoria(convocatoria);
+    setInscripcionesPage(1);
+    setInscripcionesError(null);
+    setInscriptionsOpen(true);
+  };
+
+  const closeInscripcionesModal = () => {
+    setSelectedConvocatoria(null);
+    setInscriptionsOpen(false);
+    setInscripciones([]);
+    setInscripcionesError(null);
+  };
+
+  const handleInscripcionAction = async (
+    inscripcion: ConvocatoriaInscripcion,
+    action: "aceptar" | "rechazar",
+  ) => {
+    if (!selectedConvocatoria) return;
+    const confirm = await Swal.fire({
+      title: action === "aceptar" ? "Aceptar postulación" : "Rechazar postulación",
+      text:
+        action === "aceptar"
+          ? `¿Deseas aceptar a ${inscripcion.usuarioNombre}?`
+          : `¿Deseas rechazar a ${inscripcion.usuarioNombre}?`,
+      icon: "question",
+      showCancelButton: true,
+      confirmButtonText: action === "aceptar" ? "Sí, aceptar" : "Sí, rechazar",
+      cancelButtonText: "Cancelar",
+      confirmButtonColor: action === "aceptar" ? "#1ea896" : "#f87171",
+    });
+    if (!confirm.isConfirmed) return;
+
+    setInscripcionActionId(inscripcion.id);
+    try {
+      if (action === "aceptar") {
+        await aceptarInscripcion(selectedConvocatoria.id, inscripcion.id);
+      } else {
+        await rechazarInscripcion(selectedConvocatoria.id, inscripcion.id);
+      }
+
+      await Swal.fire({
+        title:
+          action === "aceptar"
+            ? "Postulación aceptada"
+            : "Postulación rechazada",
+        icon: "success",
+        confirmButtonColor: "#1ea896",
+      });
+      loadInscripciones();
+    } catch (err) {
+      console.error("No se pudo actualizar la inscripción", err);
+      await Swal.fire({
+        title: "Error",
+        text: "No pudimos completar la acción. Intenta nuevamente.",
+        icon: "error",
+        confirmButtonColor: "#1ea896",
+      });
+    } finally {
+      setInscripcionActionId(null);
+    }
+  };
+
+  const loadInscripciones = useCallback(async () => {
+    if (!inscriptionsOpen || !selectedConvocatoria) return;
+    setInscripcionesLoading(true);
+    setInscripcionesError(null);
+    try {
+      const result = await fetchConvocatoriaInscripciones(selectedConvocatoria.id, {
+        page: inscripcionesPage - 1,
+        size: inscripcionesPageSize,
+      });
+      setInscripciones(result.items);
+      setInscripcionesTotalPages(result.totalPages);
+      setInscripcionesTotal(result.total);
+      const serverPage = result.page + 1;
+      if (serverPage !== inscripcionesPage) {
+        setInscripcionesPage(serverPage);
+      }
+    } catch (err) {
+      console.error("No se pudieron obtener las inscripciones", err);
+      setInscripciones([]);
+      setInscripcionesTotalPages(1);
+      setInscripcionesTotal(0);
+      setInscripcionesError("Ocurrió un error al cargar las inscripciones.");
+    } finally {
+      setInscripcionesLoading(false);
+    }
+  }, [inscripcionesPage, inscripcionesPageSize, inscriptionsOpen, selectedConvocatoria]);
+
+  useEffect(() => {
+    loadInscripciones();
+  }, [loadInscripciones]);
+
   return (
-    <Stack spacing={4}>
+    <div className="space-y-6">
       <WelcomePanel
         greeting={`Bienvenido, ${name}`}
         roleLabel="Presidente del club"
-        description="Administra tus convocatorias desde un solo lugar, revisa su estado e inicia nuevas oportunidades."
-        hint="Pronto podrás crear convocatorias directamente desde este panel."
+        description="Administra convocatorias, consulta estados y lanza nuevas oportunidades para tu club."
+        hint="Cuando vinculemos la API verás aquí las métricas en tiempo real."
       />
 
-      <Paper
+      <section
         id="convocatorias"
-        variant="outlined"
-        sx={{ p: 3, borderRadius: 3 }}
+        className="rounded-3xl bg-white p-6 shadow-card ring-1 ring-border-subtle"
       >
-        <Stack
-          direction={{ xs: "column", md: "row" }}
-          spacing={2}
-          justifyContent="space-between"
-          alignItems={{ xs: "flex-start", md: "center" }}
-          sx={{ mb: 3 }}
-        >
+        <header className="mb-5 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
-            <Typography variant="h6" fontWeight={600}>
+            <h2 className="text-xl font-semibold text-text-primary">
               Convocatorias del club
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              Consulta tus convocatorias vigentes y planifica las próximas.
-            </Typography>
+            </h2>
+            <p className="text-sm text-text-secondary">
+              Consulta tus convocatorias vigentes y organiza las próximas publicadas.
+            </p>
           </div>
-          <Stack direction="row" spacing={1} alignItems="center">
+          <div className="flex flex-wrap items-center gap-3">
             <Select
-              size="small"
               value={String(pageSize)}
-              onChange={handlePageSizeChange}
+              onChange={(event) => {
+                setPageSize(Number(event.target.value));
+                setPage(1);
+              }}
             >
               {[5, 10, 15].map((option) => (
-                <MenuItem key={option} value={option}>
+                <option key={option} value={option}>
                   {option} / pág
-                </MenuItem>
+                </option>
               ))}
             </Select>
-            <Tooltip title="Recargar">
-              <IconButton onClick={loadConvocatorias}>
-                <RefreshIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
+            <Button color="light" onClick={loadConvocatorias}>
+              Refrescar
+            </Button>
             <Button
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={handleOpenDialog}
-              sx={{ whiteSpace: "nowrap" }}
+              color="light"
+              className="border border-primary bg-primary px-5 text-white hover:bg-primary-dark"
+              onClick={openCreateModal}
             >
               Crear convocatoria
             </Button>
-          </Stack>
-        </Stack>
+          </div>
+        </header>
 
         {error && (
-          <Alert severity="error" sx={{ mb: 2 }}>
+          <Alert color="failure" className="mb-4">
             {error}
           </Alert>
         )}
 
         {loading ? (
-          <Stack alignItems="center" sx={{ py: 6 }} spacing={2}>
-            <CircularProgress />
-            <Typography variant="body2" color="text.secondary">
-              Cargando convocatorias...
-            </Typography>
-          </Stack>
+          <div className="flex flex-col items-center gap-2 py-10 text-sm text-text-secondary">
+            <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary/20 border-t-primary" />
+            Cargando convocatorias...
+          </div>
         ) : convocatorias.length === 0 ? (
-          <Stack alignItems="center" sx={{ py: 6 }} spacing={1}>
-            <Typography variant="subtitle1" fontWeight={600}>
-              No tienes convocatorias registradas.
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              Crea una nueva convocatoria para invitar a interesados desde tu
-              club.
-            </Typography>
-          </Stack>
+          <div className="rounded-2xl border border-dashed border-border-subtle p-10 text-center">
+            <h3 className="text-lg font-semibold text-text-primary">
+              No tienes convocatorias registradas
+            </h3>
+            <p className="text-sm text-text-secondary">
+              Crea una nueva para invitar a interesados desde tu club.
+            </p>
+          </div>
         ) : (
           <>
-            <TableContainer>
-              <Table size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Convocatoria</TableCell>
-                    <TableCell align="center">Estado</TableCell>
-                    <TableCell align="center">Inicio postul.</TableCell>
-                    <TableCell align="center">Cierre</TableCell>
-                    <TableCell align="right">Cupo máx.</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
+            <div className="overflow-x-auto rounded-2xl border border-border-subtle">
+              <Table>
+                <Table.Head className="bg-bg-soft text-xs uppercase text-text-secondary">
+                  <Table.HeadCell>Título</Table.HeadCell>
+                  <Table.HeadCell>Estado</Table.HeadCell>
+                  <Table.HeadCell>Inicio postul.</Table.HeadCell>
+                  <Table.HeadCell>Cierre</Table.HeadCell>
+                  <Table.HeadCell>Cupo</Table.HeadCell>
+                  <Table.HeadCell>Acciones</Table.HeadCell>
+                </Table.Head>
+                <Table.Body className="divide-y">
                   {convocatorias.map((convocatoria) => (
-                    <TableRow key={convocatoria.id} hover>
-                      <TableCell>
-                        <Typography variant="subtitle2">
-                          {convocatoria.titulo}
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
+                    <Table.Row key={convocatoria.id} className="bg-white text-sm">
+                      <Table.Cell className="font-semibold text-text-primary">
+                        {convocatoria.titulo}
+                        <div className="text-xs text-text-secondary">
                           {convocatoria.descripcion}
-                        </Typography>
-                      </TableCell>
-                      <TableCell align="center">
-                        <Chip
-                          size="small"
-                          label={convocatoria.estado}
-                          color={
-                            convocatoria.estado?.toLowerCase() === "activa"
-                              ? "success"
-                              : convocatoria.estado?.toLowerCase() === "cerrada"
-                                ? "default"
-                                : "info"
-                          }
-                        />
-                      </TableCell>
-                      <TableCell align="center">
-                        {formatDate(convocatoria.fechaInicioPostulacion)}
-                      </TableCell>
-                      <TableCell align="center">
-                        {formatDate(convocatoria.fechaCierre)}
-                      </TableCell>
-                      <TableCell align="right">
-                        {convocatoria.cupoMaximo}
-                      </TableCell>
-                    </TableRow>
+                        </div>
+                        <div className="mt-1 text-xs text-text-secondary">
+                          <span className="font-semibold text-text-primary">Requisitos:</span>{" "}
+                          {convocatoria.requisitos || "Sin requisitos definidos"}
+                        </div>
+                      </Table.Cell>
+                      <Table.Cell>
+                        <Badge color={convocatoria.estado === "Activa" ? "success" : "gray"}>
+                          {convocatoria.estado}
+                        </Badge>
+                      </Table.Cell>
+                      <Table.Cell>{formatDate(convocatoria.fechaInicioPostulacion)}</Table.Cell>
+                      <Table.Cell>{formatDate(convocatoria.fechaCierre)}</Table.Cell>
+                      <Table.Cell>{convocatoria.cupoMaximo}</Table.Cell>
+                      <Table.Cell className="space-y-2">
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            color="light"
+                            className="rounded-base border border-primary px-3 py-1 text-xs font-semibold text-primary hover:bg-primary hover:text-white"
+                            onClick={() => openInscripcionesModal(convocatoria)}
+                          >
+                            Ver inscripciones
+                          </Button>
+                          <Button
+                            color="light"
+                            className="rounded-base border border-secondary px-3 py-1 text-xs font-semibold text-secondary hover:bg-secondary hover:text-white"
+                            onClick={() => openEditModal(convocatoria)}
+                          >
+                            Editar convocatoria
+                          </Button>
+                        </div>
+                      </Table.Cell>
+                    </Table.Row>
                   ))}
-                </TableBody>
+                </Table.Body>
               </Table>
-            </TableContainer>
+            </div>
 
-            <Stack
-              direction={{ xs: "column", md: "row" }}
-              spacing={2}
-              alignItems={{ xs: "flex-start", md: "center" }}
-              justifyContent="space-between"
-              sx={{ mt: 3 }}
-            >
-              <Typography variant="body2" color="text.secondary">
-                {paginationLabel}
-              </Typography>
+            <div className="mt-4 flex flex-col gap-3 text-sm text-text-secondary md:flex-row md:items-center md:justify-between">
+              <p>{paginationLabel}</p>
               <Pagination
-                count={totalPages}
-                page={page}
-                onChange={handlePageChange}
-                color="primary"
-                shape="rounded"
+                currentPage={page}
+                totalPages={totalPages}
+                onPageChange={(value) => setPage(value)}
+                showIcons
               />
-            </Stack>
+            </div>
           </>
         )}
-      </Paper>
+      </section>
 
-      <Dialog
-        open={dialogOpen}
-        onClose={handleCloseDialog}
-        maxWidth="md"
-        fullWidth
-        PaperProps={{
-          sx: {
-            borderRadius: 4,
-            backgroundImage:
-              "linear-gradient(135deg, rgba(255,255,255,0.97), rgba(249,250,251,0.97))",
-          },
-        }}
-      >
-        <DialogTitle sx={{ fontWeight: 600, fontSize: { xs: "1.1rem", sm: "1.25rem" } }}>
-          Nueva convocatoria
-        </DialogTitle>
-        <DialogContent dividers sx={{ borderTop: "1px solid rgba(148,163,184,0.2)" }}>
-          <form id="create-convocatoria" onSubmit={handleSubmit(onSubmit)}>
-            <Stack spacing={3}>
-              <Grid container spacing={2}>
-                <Grid item xs={12} md={8}>
-                  <InputField
-                    label="Título"
-                    error={errors.titulo?.message}
-                    {...registerField("titulo", {
-                      required: "El título es obligatorio",
-                      minLength: {
-                        value: 4,
-                        message: "Incluye al menos 4 caracteres",
-                      },
-                    })}
-                  />
-                </Grid>
-                <Grid item xs={12} md={4}>
-                  <InputField
-                    label="Cupo máximo"
-                    type="number"
-                    inputProps={{ min: 1 }}
-                    error={errors.cupoMaximo?.message}
-                    {...registerField("cupoMaximo", {
-                      valueAsNumber: true,
-                      required: "Ingresa el cupo máximo",
-                      min: { value: 1, message: "Debe ser mayor a 0" },
-                    })}
-                  />
-                </Grid>
-              </Grid>
-              <InputField
-                label="Descripción"
-                multiline
-                minRows={3}
-                error={errors.descripcion?.message}
-                {...registerField("descripcion", {
+      <Modal show={isModalOpen} onClose={closeModal} size="xl">
+        <Modal.Header>
+          {modalMode === "create" ? "Nueva convocatoria" : "Editar convocatoria"}
+        </Modal.Header>
+        <form onSubmit={handleSubmit(onSubmit)}>
+          <Modal.Body className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <label className="text-sm font-semibold text-text-primary">Título</label>
+                <TextInput
+                  {...register("titulo", { required: "El título es obligatorio" })}
+                  color={errors.titulo ? "failure" : "gray"}
+                  helperText={errors.titulo?.message}
+                />
+              </div>
+              <div>
+                <label className="text-sm font-semibold text-text-primary">Cupo máximo</label>
+                <TextInput
+                  type="number"
+                  min={1}
+                  {...register("cupoMaximo", {
+                    valueAsNumber: true,
+                    required: "Ingresa el cupo máximo",
+                    min: { value: 1, message: "Debe ser mayor a 0" },
+                  })}
+                  color={errors.cupoMaximo ? "failure" : "gray"}
+                  helperText={errors.cupoMaximo?.message}
+                />
+              </div>
+            </div>
+            <div>
+              <label className="text-sm font-semibold text-text-primary">Descripción</label>
+              <Textarea
+                rows={3}
+                {...register("descripcion", {
                   required: "La descripción es obligatoria",
-                  minLength: {
-                    value: 10,
-                    message: "Detalla al menos 10 caracteres",
-                  },
+                  minLength: { value: 10, message: "Incluye al menos 10 caracteres" },
                 })}
+                color={errors.descripcion ? "failure" : "gray"}
+                helperText={errors.descripcion?.message}
               />
-              <InputField
-                label="Requisitos"
-                multiline
-                minRows={3}
-                error={errors.requisitos?.message}
-                {...registerField("requisitos", {
-                  required: "Describe los requisitos",
-                })}
+            </div>
+            <div>
+              <label className="text-sm font-semibold text-text-primary">Requisitos</label>
+              <Textarea
+                rows={3}
+                {...register("requisitos", { required: "Describe los requisitos" })}
+                color={errors.requisitos ? "failure" : "gray"}
+                helperText={errors.requisitos?.message}
               />
-              <Grid container spacing={2}>
-                <Grid item xs={12} md={6}>
-                  <InputField
-                    label="Fecha de publicación"
-                    type="date"
-                    error={errors.fechaPublicacion?.message}
-                    {...registerField("fechaPublicacion", {
-                      required: "Selecciona una fecha",
-                    })}
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              {[
+                { name: "fechaPublicacion", label: "Fecha de publicación", disableOnEdit: true },
+                { name: "fechaCierre", label: "Fecha de cierre" },
+                { name: "fechaInicioPostulacion", label: "Inicio de postulación" },
+                { name: "fechaFinPostulacion", label: "Fin de postulación" },
+              ].map(({ name, label, disableOnEdit }) => {
+                const key = name as keyof CreateConvocatoriaPayload;
+                const fieldError = errors[key];
+                return (
+                  <div key={name}>
+                    <label className="text-sm font-semibold text-text-primary">
+                      {label}
+                    </label>
+                    <TextInput
+                      type="date"
+                      {...register(key, { required: "Selecciona una fecha" })}
+                      disabled={Boolean(disableOnEdit && modalMode === "edit")}
+                      color={fieldError ? "failure" : "gray"}
+                      helperText={fieldError?.message}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+            {formError && (
+              <Alert color="failure" onDismiss={() => setFormError(null)}>
+                {formError}
+              </Alert>
+            )}
+          </Modal.Body>
+          <Modal.Footer className="flex justify-end gap-2 border-t border-border-subtle">
+            <Button color="light" onClick={closeModal} disabled={isSubmitting}>
+              Cancelar
+            </Button>
+            <Button
+              type="submit"
+              color="light"
+              className="border border-primary bg-primary px-5 text-white hover:bg-primary-dark"
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? "Guardando..." : "Guardar"}
+            </Button>
+          </Modal.Footer>
+        </form>
+      </Modal>
+
+      <Modal show={inscriptionsOpen} onClose={closeInscripcionesModal} size="4xl">
+        <Modal.Header>
+          Inscripciones - {selectedConvocatoria?.titulo ?? "Convocatoria"}
+        </Modal.Header>
+        <Modal.Body>
+          {inscripcionesError && (
+            <Alert color="failure" className="mb-3">
+              {inscripcionesError}
+            </Alert>
+          )}
+          {inscripcionesLoading ? (
+            <div className="flex flex-col items-center gap-2 py-10 text-sm text-text-secondary">
+              <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary/20 border-t-primary" />
+              Cargando inscripciones...
+            </div>
+          ) : inscripciones.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-border-subtle p-8 text-center text-sm text-text-secondary">
+              No hay inscripciones registradas.
+            </div>
+          ) : (
+            <>
+              <div className="overflow-x-auto rounded-2xl border border-border-subtle">
+                <Table>
+                  <Table.Head className="bg-bg-soft text-xs uppercase text-text-secondary">
+                    <Table.HeadCell>Nombre</Table.HeadCell>
+                    <Table.HeadCell>Correo</Table.HeadCell>
+                    <Table.HeadCell>Tipo</Table.HeadCell>
+                    <Table.HeadCell>Estado</Table.HeadCell>
+                    <Table.HeadCell>Fecha registro</Table.HeadCell>
+                    <Table.HeadCell>Acciones</Table.HeadCell>
+                  </Table.Head>
+                  <Table.Body className="divide-y">
+                    {inscripciones.map((inscripcion) => (
+                      <Table.Row key={inscripcion.id} className="bg-white text-sm">
+                        <Table.Cell className="font-semibold text-text-primary">
+                          {inscripcion.usuarioNombre}
+                        </Table.Cell>
+                        <Table.Cell>{inscripcion.usuarioCorreo}</Table.Cell>
+                        <Table.Cell>{inscripcion.tipo}</Table.Cell>
+                        <Table.Cell>
+                          <Badge color={inscripcion.estado === "APROBADO" ? "success" : "gray"}>
+                            {inscripcion.estado}
+                          </Badge>
+                        </Table.Cell>
+                        <Table.Cell>
+                          {formatDate(inscripcion.fechaRegistro)}
+                        </Table.Cell>
+                        <Table.Cell>
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              color="light"
+                              size="xs"
+                              disabled={inscripcionActionId === inscripcion.id}
+                              className="rounded-base border border-primary px-3 py-1 text-xs font-semibold text-primary hover:bg-primary hover:text-white"
+                              onClick={() => handleInscripcionAction(inscripcion, "aceptar")}
+                            >
+                              {inscripcionActionId === inscripcion.id ? "Procesando..." : "Aceptar"}
+                            </Button>
+                            <Button
+                              color="light"
+                              size="xs"
+                              disabled={inscripcionActionId === inscripcion.id}
+                              className="rounded-base border border-danger-subtle px-3 py-1 text-xs font-semibold text-danger hover:bg-danger hover:text-white"
+                              onClick={() => handleInscripcionAction(inscripcion, "rechazar")}
+                            >
+                              {inscripcionActionId === inscripcion.id ? "Procesando..." : "Rechazar"}
+                            </Button>
+                          </div>
+                        </Table.Cell>
+                      </Table.Row>
+                    ))}
+                  </Table.Body>
+                </Table>
+              </div>
+              <div className="mt-4 flex flex-col gap-3 text-sm text-text-secondary md:flex-row md:items-center md:justify-between">
+                <p>
+                  Mostrando {inscripciones.length} de {inscripcionesTotal}
+                </p>
+                <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center">
+                  <Select
+                    value={String(inscripcionesPageSize)}
+                    onChange={(event) => {
+                      setInscripcionesPageSize(Number(event.target.value));
+                      setInscripcionesPage(1);
+                    }}
+                    className="sm:w-32"
+                  >
+                    {[5, 10, 15].map((option) => (
+                      <option key={option} value={option}>
+                        {option} / pág
+                      </option>
+                    ))}
+                  </Select>
+                  <Pagination
+                    currentPage={inscripcionesPage}
+                    totalPages={inscripcionesTotalPages}
+                    onPageChange={(value) => setInscripcionesPage(value)}
+                    showIcons
                   />
-                </Grid>
-                <Grid item xs={12} md={6}>
-                  <InputField
-                    label="Fecha de cierre"
-                    type="date"
-                    error={errors.fechaCierre?.message}
-                    {...registerField("fechaCierre", {
-                      required: "Selecciona una fecha",
-                    })}
-                  />
-                </Grid>
-                <Grid item xs={12} md={6}>
-                  <InputField
-                    label="Inicio de postulación"
-                    type="date"
-                    error={errors.fechaInicioPostulacion?.message}
-                    {...registerField("fechaInicioPostulacion", {
-                      required: "Selecciona una fecha",
-                    })}
-                  />
-                </Grid>
-                <Grid item xs={12} md={6}>
-                  <InputField
-                    label="Fin de postulación"
-                    type="date"
-                    error={errors.fechaFinPostulacion?.message}
-                    {...registerField("fechaFinPostulacion", {
-                      required: "Selecciona una fecha",
-                    })}
-                  />
-                </Grid>
-              </Grid>
-              {formError && (
-                <Alert severity="error" onClose={() => setFormError(null)}>
-                  {formError}
-                </Alert>
-              )}
-            </Stack>
-          </form>
-        </DialogContent>
-        <DialogActions sx={{ px: 3, py: 2.5 }}>
-          <Button onClick={handleCloseDialog} disabled={isSubmitting}>
-            Cancelar
+                </div>
+              </div>
+            </>
+          )}
+        </Modal.Body>
+        <Modal.Footer className="border-t border-border-subtle">
+          <Button color="light" onClick={closeInscripcionesModal}>
+            Cerrar
           </Button>
-          <Button
-            type="submit"
-            form="create-convocatoria"
-            variant="contained"
-            disabled={isSubmitting}
-          >
-            {isSubmitting ? "Guardando..." : "Guardar"}
-          </Button>
-        </DialogActions>
-      </Dialog>
-    </Stack>
+        </Modal.Footer>
+      </Modal>
+    </div>
   );
 };

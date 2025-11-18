@@ -1,5 +1,3 @@
-import { Paper, Stack, Typography } from "@mui/material";
-
 interface WelcomePanelProps {
   greeting: string;
   roleLabel: string;
@@ -13,29 +11,12 @@ export const WelcomePanel = ({
   description,
   hint,
 }: WelcomePanelProps) => (
-  <Paper
-    variant="outlined"
-    sx={{
-      p: { xs: 3, md: 4 },
-      borderRadius: 4,
-      background: "linear-gradient(135deg, #fdfbfb 0%, #ebedee 100%)",
-    }}
-  >
-    <Stack spacing={2}>
-      <Typography variant="h4" fontWeight={600}>
-        {greeting}
-      </Typography>
-      <Typography variant="body1" color="text.secondary">
-        Rol actual: {roleLabel}
-      </Typography>
-      <Typography variant="body1" color="text.primary">
-        {description}
-      </Typography>
-      {hint ? (
-        <Typography variant="body2" color="text.secondary">
-          {hint}
-        </Typography>
-      ) : null}
-    </Stack>
-  </Paper>
+  <section className="rounded-3xl bg-white p-6 shadow-card ring-1 ring-border-subtle">
+    <p className="text-xs font-semibold uppercase tracking-widest text-primary">
+      Rol: {roleLabel}
+    </p>
+    <h1 className="mt-2 text-3xl font-bold text-text-primary">{greeting}</h1>
+    <p className="mt-2 text-base text-text-secondary">{description}</p>
+    {hint ? <p className="mt-1 text-sm text-text-secondary">{hint}</p> : null}
+  </section>
 );
