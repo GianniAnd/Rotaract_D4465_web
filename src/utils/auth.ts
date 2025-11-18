@@ -1,39 +1,72 @@
-import { AuthSession, AuthUser, UserRole, USER_ROLES } from '../types';
+import { AuthSession, AuthUser, UserRole, USER_ROLES } from "../types";
 
-const roleDictionary: Record<string, UserRole> = USER_ROLES.reduce(
-  (acc, role) => ({ ...acc, [role]: role }),
-  {}
+const roleDictionary: Record<string, UserRole> = USER_ROLES.reduce<Record<string, UserRole>>(
+  (acc, role) => {
+    acc[role.toUpperCase()] = role;
+    return acc;
+  },
+  {},
 );
 
 const normalizeRole = (role?: string): UserRole => {
-  if (!role) return 'INTERESADO';
-  const formatted = role.toUpperCase();
-  return roleDictionary[formatted] ?? 'INTERESADO';
+  if (!role) return "INTERESADO";
+  const formatted = role.trim().toUpperCase();
+  return roleDictionary[formatted] ?? "INTERESADO";
 };
 
-const resolveUser = (rawUser: any): AuthUser => {
-  if (!rawUser) {
-    return { correo: '', rol: 'INTERESADO' };
+const resolveUser = (rawUser: unknown): AuthUser => {
+  if (!rawUser || typeof rawUser !== "object") {
+    return { correo: "", rol: "INTERESADO" };
   }
-  const role = normalizeRole(rawUser.rol ?? rawUser.role);
+  const candidate = rawUser as Record<string, unknown>;
+  const role = normalizeRole(
+    (candidate.rol as string) ??
+      (candidate.role as string),
+  );
   return {
-    id: rawUser.id ?? rawUser._id ?? rawUser.uid,
-    correo: rawUser.correo ?? rawUser.email ?? '',
-    nombres: rawUser.nombres ?? rawUser.nombre ?? rawUser.firstName,
-    apellidos: rawUser.apellidos ?? rawUser.lastName,
+    id:
+      (candidate.id as string) ??
+      (candidate._id as string) ??
+      (candidate.uid as string),
+    correo:
+      (candidate.correo as string) ??
+      (candidate.email as string) ??
+      "",
+    nombre:
+      (candidate.nombre as string) ??
+      (candidate.nombres as string) ??
+      (candidate.firstName as string),
+    apellidos:
+      (candidate.apellidos as string) ??
+      (candidate.lastName as string),
     rol: role,
   };
 };
 
-export const normalizeAuthResponse = (payload: any): AuthSession => {
-  const accessToken =
-    payload?.accessToken ?? payload?.token ?? payload?.access_token ?? payload?.data?.accessToken;
-  const refreshToken =
-    payload?.refreshToken ?? payload?.refresh_token ?? payload?.data?.refreshToken;
-  if (!accessToken || !refreshToken) {
-    throw new Error('No se recibieron tokens válidos del servidor.');
+export const normalizeAuthResponse = (payload: unknown): AuthSession => {
+  if (!payload || typeof payload !== "object") {
+    throw new Error("No se recibieron datos válidos del servidor.");
   }
-  const rawUser = payload?.usuario ?? payload?.user ?? payload?.data?.usuario ?? payload;
+  const source = payload as Record<string, unknown>;
+  const accessToken =
+    (source.accessToken as string) ??
+    (source.token as string) ??
+    (source.access_token as string) ??
+    (source.data as Record<string, unknown> | undefined)?.accessToken;
+  const refreshToken =
+    (source.refreshToken as string) ??
+    (source.refresh_token as string) ??
+    (source.data as Record<string, unknown> | undefined)?.refreshToken;
+
+  if (!accessToken) {
+    throw new Error("No se recibieron tokens válidos del servidor.");
+  }
+
+  const rawUser =
+    source.usuario ??
+    source.user ??
+    (source.data as Record<string, unknown> | undefined)?.usuario ??
+    source;
   const user = resolveUser(rawUser);
 
   return {
